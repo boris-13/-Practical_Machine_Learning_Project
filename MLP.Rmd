@@ -1,0 +1,149 @@
+---
+title: Practical Machine Learning - Course Project
+output:
+  html_document: default
+  pdf_document: default
+---
+
+*Boris Romanciuc*
+
+*November 21, 2018*
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache=TRUE)
+```
+
+## Background  
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset). 
+
+A short description of the datasets content from the authors’ website:
+
+“Six young health participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions: exactly according to the specification (Class A), throwing the elbows to the front (Class B), lifting the dumbbell only halfway (Class C), lowering the dumbbell only halfway (Class D) and throwing the hips to the front (Class E). 
+
+**Data**
+
+The training data for this project are available here: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+The data for this project come from this source: http://groupware.les.inf.puc-rio.br/har. If you use the document you create for this class for any purpose please cite them as they have been very generous in allowing their data to be used for this kind of assignment.
+
+**Goal**
+
+The goal of your project is to predict the manner in which they did the exercise. This is the “classe” variable in the training set. You may use any of the other variables to predict with. You should create a report describing how you built your model, how you used cross validation, what you think the expected out of sample error is, and why you made the choices you did. You will also use your prediction model to predict 20 different test cases.
+
+
+## Environment Preparation 
+First thing we will upload the R libraries that we'll need for the complete analysis.
+```{r loadlibraries}
+library(caret)
+library(rpart)
+library(randomForest)
+library(rpart.plot)
+library(rattle)
+```
+
+## Data Loading and Preprocesing
+
+In this section we will load from internet the data in two data frames: training and testing one. 
+```{r loaddata}
+train_link <-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+test_link <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+train_file <- "pml-training.csv"
+test_file  <- "pml-testing.csv"
+
+if (!file.exists(train_file)) {
+  download.file(train_link, destfile=train_file, method="curl")
+}
+if (!file.exists(test_file)) {
+  download.file(test_link, destfile=test_file, method="curl")
+}
+```  
+
+### Data Reading
+Now we are creating two data frames out of our two data csv files and we'll be checking the dimensions of our data frames.
+```{r readdata}
+train_df <- read.csv("pml-training.csv")
+test_df <- read.csv("pml-testing.csv")
+dim(train_df)
+dim(test_df)
+```
+As we can see, the training data frame contains 19622 observations and 160 variables, as the testing data frame contains 20 observations and 160 variables. The "classe" variable in the training set will be used as the outcome to predict. 
+
+### Data Cleaninig
+Here we will clean the data out of NA and empty values and non significant columns that won't serve us in our analysis. Also we will remove the first 7 features (columns) since they are identification only variables or time-series or are not numeric, so, in the end, are not that important for our study.
+```{r cleandata}
+cols <- names(test_df[,colSums(is.na(test_df)) == 0])[8:59]
+
+# We will use only the features used in testing cases.
+train_df <- train_df[,c(cols,"classe")]
+test_df <- test_df[,c(cols,"problem_id")]
+
+dim(train_df) 
+dim(test_df)
+```
+
+## Dataset Partitioning
+
+Now, using the guides from the Machine Learning course, we will split our training data set in two parts: train (70% - for prediction) and test(30% - for validation) of total observations. We will use the train data set for training our predictor and to estimate the sample error for it.
+
+```{r splitdata}
+set.seed(2018)
+
+inTrain <- createDataPartition(train_df$classe, p=0.7, list=FALSE)
+train_set <- train_df[inTrain,]
+test_set <- train_df[-inTrain,]
+
+dim(train_set)
+dim(test_set)
+```
+
+
+## Prediction Algorithms
+
+For our analisys in predicting the outcome, we will use two training models (Classification Trees and Random Forests) and will see which one gives a better accuracy.
+
+### Classification Trees
+In this model we will use the cross validation technique (**cv**) as to improve the efficiency of the model and to limit the effects of overfitting.
+Usually, when doing k-fold cross validation, the default setting of **k** is 10 folds, but we will use **k=5** in order to reduce the computing time, although it will have a little and no significant decrease of the accuracy.  
+
+```{r train_tree}
+set.seed(2018)
+train_control <- trainControl(method="cv", number=5)
+class_tree_model <- train(classe~., data=train_set, method="rpart", trControl=train_control)
+#print(class_tree_model)
+print(class_tree_model, digits = 4)
+#plot(class_tree_model)
+fancyRpartPlot(class_tree_model$finalModel)
+# predict outcomes using validation set
+predict_class_tree <- predict(class_tree_model, test_set)
+# Show prediction result
+(conf_class_tree <- confusionMatrix(test_set$classe, predict_class_tree))
+(accuracy_class_tree <- conf_class_tree$overall[1])
+```
+As we can see from the confusion matrix, the accuracy rate is 0.5 which leads us to the conclusion that using classification trees model does not predict the outcome classe very well.
+
+### Random Forests
+
+So, let's try now the Random Forests model, as the Classification Trees one did not predict that well on our outcome.
+```{r train_RF}
+random_forest_model <- train(classe~., data=train_set, method="rf", trControl=train_control, verbose=FALSE)
+#print(random_forest_model)
+print(random_forest_model, digits = 4)
+#plot(random_forest_model)
+plot(random_forest_model,main="Accuracy - Random Forests model")
+# predict outcomes using validation set
+predict_random_forest <- predict(random_forest_model, test_set)
+# Show prediction result
+(conf_random_forest <- confusionMatrix(test_set$classe, predict_random_forest))
+(accuracy_random_forest <- conf_random_forest$overall[1])
+```
+
+As we can see again, now, with the Random Forest model, we are reaching an accuracy of 99.2% using cross-validation with 5 folds.
+
+## Prediction on Testing Set
+So, as the second model (Random Forests) is better than the first one (Classificatin Trees), we will use it to predict the outcome variable **classe** for the testing set.
+
+```{r final}
+(predict(random_forest_model, test_df))
+```
